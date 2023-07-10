@@ -1,0 +1,96 @@
+// ==UserScript==
+// @name         YouTube transcript searcher2
+// @namespace    http://tampermonkey.net/
+// @version      0.1
+// @description  Search transcript of youtube video
+// @author       GeraFine 
+// @match        *://*.youtube.com/watch?v=*
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    let ytPlayer = document.querySelector('video');
+    let videoId = window.location.search.split('v=')[1];
+    let ampersandPosition = videoId.indexOf('&');
+    if(ampersandPosition != -1) {
+        videoId = videoId.substring(0, ampersandPosition);
+    }
+
+    // Fetch transcript when video is loaded
+    GM_xmlhttpRequest({
+        method: "GET",
+        url: `http://localhost:3000/transcript-api?videoId=${videoId}`,
+        onload: function(response) {
+            console.log("Video loaded, transcript fetched successfully.");
+        }
+    });
+
+    // current search result index and the transcript array
+    let currentIndex = -1;
+    let transcript = null;
+
+    // wait until the subscribers count element is loaded
+    let checkExist = setInterval(function() {
+        let subCountElement = document.getElementById('owner-sub-count');
+        if (subCountElement) {
+            clearInterval(checkExist);
+
+            // Create a new search input for transcript
+            const transcriptSearchInput = document.createElement('input');
+            transcriptSearchInput.type = "text";
+            transcriptSearchInput.id = "transcriptSearch";
+            transcriptSearchInput.placeholder = "Search Transcript";
+
+            // Create new search buttons for transcript
+            const transcriptSearchForwardButton = document.createElement('button');
+            transcriptSearchForwardButton.innerText = "Forward";
+            const transcriptSearchBackwardButton = document.createElement('button');
+            transcriptSearchBackwardButton.innerText = "Back";
+
+            transcriptSearchForwardButton.onclick = function() {
+                let query = transcriptSearchInput.value.toLowerCase(); // convert query to lower case
+                if (transcript === null) {
+                    // first search, get the transcript
+                    GM_xmlhttpRequest({
+                        method: "GET",
+                        url: `http://localhost:3000/transcript-api?videoId=${videoId}`,
+                        onload: function(response) {
+                            transcript = JSON.parse(response.responseText);
+                            currentIndex = transcript.findIndex(t => t.text.toLowerCase().includes(query)); // compare in lower case
+                            if (currentIndex !== -1) {
+                                ytPlayer.currentTime = transcript[currentIndex].start;
+                            }
+                        }
+                    });
+                } else {
+                    // not the first search, start from the current index
+                    currentIndex = transcript.findIndex((t, i) => i > currentIndex && t.text.toLowerCase().includes(query)); // compare in lower case
+                    if (currentIndex !== -1) {
+                        ytPlayer.currentTime = transcript[currentIndex].start;
+                    }
+                }
+            };
+
+            transcriptSearchBackwardButton.onclick = function() {
+                let query = transcriptSearchInput.value.toLowerCase(); // convert query to lower case
+                if (transcript !== null) {
+                    // start from the current index
+                    currentIndex = transcript.slice(0, currentIndex).reverse().findIndex(t => t.text.toLowerCase().includes(query)); // compare in lower case
+                    if (currentIndex !== -1) {
+                        ytPlayer.currentTime = transcript[currentIndex].start;
+                    }
+                }
+            };
+
+            // Insert the new transcript search input and buttons after the subscribers count element
+            const transcriptContainer = document.createElement('div');
+            transcriptContainer.style.width = "100%";
+            transcriptContainer.appendChild(transcriptSearchInput);
+            transcriptContainer.appendChild(transcriptSearchForwardButton);
+            transcriptContainer.appendChild(transcriptSearchBackwardButton);
+            subCountElement.parentNode.insertBefore(transcriptContainer, subCountElement.nextSibling);
+        }
+    }, 100);
+})();
